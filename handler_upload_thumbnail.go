@@ -1,10 +1,12 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -36,32 +38,54 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	const maxMemory = 10 << 10
 	r.ParseMultipartForm(maxMemory)
 
-	file, header, err := r.FormFile("thumbnail")
+	thumb, header, err := r.FormFile("thumbnail")
 	if err != nil {
 		respondWithError(w, 400, "Failed to get multi-part form file", err)
+		return
 	}
-	defer file.Close()
+	defer thumb.Close()
 
-	fileType := header.Header.Get("Content-Type")
+	fileType, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
+	if err != nil || (fileType != "image/jpeg" && fileType != "image/png") {
+		respondWithError(w, 400, "Wrong file type", err)
+		return
+	}
 
-	data, err := io.ReadAll(file)
+	extension := strings.ReplaceAll(fileType, "image/", "")
+
+	/* 	data, err := io.ReadAll(thumb)
+	   	if err != nil {
+	   		respondWithError(w, 400, "Failed to read multi-part form data", err)
+	   	} */
+
+	filePath := fmt.Sprintf("/assets/%s.%s", videoID.String(), extension)
+
+	file, err := os.Create("." + filePath)
 	if err != nil {
-		respondWithError(w, 400, "Failed to read multi-part form data", err)
+		respondWithError(w, 400, "Failed to create asset file", err)
+		return
 	}
 
-	b64 := base64.StdEncoding.EncodeToString(data)
-	dataURL := fmt.Sprintf("data:%s;base64,%s", fileType, b64)
+	_, err = io.Copy(file, thumb)
+	if err != nil {
+		respondWithError(w, 400, "Failed to read data into asset file", err)
+		return
+	}
 
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Failed to get video metadata", err)
+		return
 	}
 
-	video.ThumbnailURL = &dataURL
+	tURL := fmt.Sprintf("http://localhost:%s%s", cfg.port, filePath)
+
+	video.ThumbnailURL = &tURL
 
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
 		respondWithError(w, 400, "Failed to get update video metadata", err)
+		return
 	}
 
 	respondWithJSON(w, http.StatusOK, video)
