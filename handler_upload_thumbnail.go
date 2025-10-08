@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -52,13 +54,10 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 
 	extension := strings.ReplaceAll(fileType, "image/", "")
-
-	/* 	data, err := io.ReadAll(thumb)
-	   	if err != nil {
-	   		respondWithError(w, 400, "Failed to read multi-part form data", err)
-	   	} */
-
-	filePath := fmt.Sprintf("/assets/%s.%s", videoID.String(), extension)
+	rng := make([]byte, 32)
+	rand.Read(rng)
+	fileName := base64.RawURLEncoding.EncodeToString(rng)
+	filePath := fmt.Sprintf("/assets/%s.%s", fileName, extension)
 
 	file, err := os.Create("." + filePath)
 	if err != nil {
