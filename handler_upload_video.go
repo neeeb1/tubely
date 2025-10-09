@@ -157,13 +157,24 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, 400, "Failed to get create temp file", err)
 		return
 	}
-	defer os.Remove(tempFilePath)
-	defer tempFile.Close()
+	defer os.Remove(tempFile.Name())
 
 	io.Copy(tempFile, videoFile)
-	tempFile.Seek(0, io.SeekStart)
+	tempFile.Close()
 
-	ratio, err := getVideoAspectRatio(tempFile.Name())
+	processedPath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, 400, "Failed to pre-process file", err)
+		return
+	}
+
+	processedFile, err := os.Open(processedPath)
+	if err != nil {
+		respondWithError(w, 400, "Failed to pre-process file", err)
+		return
+	}
+
+	ratio, err := getVideoAspectRatio(processedPath)
 	if err != nil {
 		respondWithError(w, 400, "Failed to get aspect ratio", err)
 		return
@@ -174,7 +185,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	key := fmt.Sprintf("%s/%s", ratio, (base64.RawURLEncoding.EncodeToString(rng) + ".mp4"))
 	params := s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
-		Body:        tempFile,
+		Body:        processedFile,
 		Key:         &key,
 		ContentType: &fileType,
 	}
@@ -219,4 +230,20 @@ func getVideoAspectRatio(filePath string) (string, error) {
 	default:
 		return "other", nil
 	}
+}
+
+func processVideoForFastStart(filePath string) (string, error) {
+	outFilePath := filePath + ".processing"
+	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outFilePath)
+
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println(errBuf.String())
+		return "", err
+	}
+
+	return outFilePath, nil
 }
