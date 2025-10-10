@@ -192,7 +192,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 
 	cfg.s3Client.PutObject(r.Context(), &params)
 
-	url := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, key)
+	url := fmt.Sprintf("https://%s/%s", cfg.s3CfDistribution, key)
 	video.VideoURL = &url
 
 	err = cfg.db.UpdateVideo(video)
@@ -200,6 +200,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, 400, "Failed to get update video meta data", err)
 		return
 	}
+
+	if err != nil {
+		respondWithError(w, 400, "Failed to create presigned URL", err)
+		return
+	}
+
+	respondWithJSON(w, 200, video)
 }
 
 func getVideoAspectRatio(filePath string) (string, error) {
